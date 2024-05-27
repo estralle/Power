@@ -3,10 +3,11 @@ import epics
 class PvChannel:
     def __init__(self) -> None:
         self.channelDict = {}
-        self.name = ""
+    #    self.nameDict = {}
 
     def push(self, variable_name, pv_name):
-        self.name = variable_name
+        # self.name = variable_name
+        # self.nameDict.setdefault(variable_name, pv_name)
         return self.channelDict.setdefault(variable_name, epics.PV(pv_name))
 
     def remove(self, variable_name):

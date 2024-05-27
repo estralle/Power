@@ -9,11 +9,19 @@ import time
 import queue
 from threading import Thread
 import json 
+import os
+from time import sleep
+
+
+# 设置环境变量
+os.environ["EPICS_CA_ADDR_LIST"] = "10.1.236.84 10.1.44.232 "
+os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"  # 如果需要，也可以设置其他相关的环境变量
+
 
 def main():
-    config_path = '/home/pengn/Workspace/General_info/config/config.json'
+    config_path = '/home/pengna/Workspace/General_info/scripts/Power/MonitorMultiPVs/config.json'
     monitor_manager = Monitor(config_path)
-    executor = ThreadPoolExecutor(max_workers=100)
+    executor = ThreadPoolExecutor(max_workers=300)
     #executor = ThreadPoolExecutor()
 
     # 启动初始配置中的所有监控

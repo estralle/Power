@@ -30,9 +30,12 @@ class ModelEvaluator:
         """
         try:
             variance = np.var(data_vector)
-            range_ = np.ptp(data_vector)
-            features = np.array([[variance, range_]])
+            #range_ = np.ptp(data_vector)
+            range_ = np.max(data_vector) - np.min(data_vector)  # 最大值 - 最小值
+            features = np.array([[range_, variance]])
+            print(f"Before sacled features {features}")
             features_scaled = self.scaler.transform(features)
+            print(f"After sacled features {features_scaled}")
             return features_scaled
         except Exception as e:
             print(f"Error calculating features: {e}")

@@ -73,8 +73,8 @@ class Monitor:
         self.push_channels(self.output_channel, self.output_channel_old, "Outputname")
 
     def push_channels(self, channel, channel_old, define_name):
-        for variable_name in channel_old:
-            if variable_name not in self.config[define_name].items():
+        for variable_name in list(channel_old):
+            if variable_name not in self.config[define_name]:
                 channel.remove(variable_name)
         for variable_name, pvname in self.config[define_name].items():
             channel.push(variable_name, pvname)
@@ -90,27 +90,24 @@ class Monitor:
             variable_info['data_vector'] = np.zeros(data_vector_length)  # 初始化数据向量
             variable_info['time_vector'] = []  # 时间向量
             config = self.config
-            #use_saved_data = config['Use_saved_data'][variable_name]
-            model = config['models_and_scalers'][variable_name][0]
-            scaler = config['models_and_scalers'][variable_name][1]
-            pvname = self.input_channel.channelDict[variable_name]
-            outputname = self._channel.channelDict[variable_name]
+            inputpv = self.input_channel.channelDict[variable_name]
+            outputpv = self.output_channel.channelDict[variable_name]
+            #print(f"pvname is {pvname}, outputname is {outputname}")
             Freq_Init = config['Freq']['initial']
             Freq_Collect = config['Freq']['collect']
-            #print(f"Before initial Monitoring {variable_name}")
-            self.data_collector.collect_initial_data_online(PVname=pvname, vector_length=data_vector_length, Freq=Freq_Init)
+            variable_info['data_vector'], variable_info['time_vector'] = self.data_collector.collect_initial_data_online(CheckPV=inputpv, vector_length=data_vector_length, Freq=Freq_Init)
             print(variable_name + " Initial data collection complete.")
             # 计算最大值和平均值
             max_value = np.mean(variable_info['data_vector']) + 0.5
             min_value = np.mean(variable_info['data_vector']) - 0.5
             variable_info['data_vector'] = (variable_info['data_vector'] - min_value) / (max_value - min_value)
             while True:
-                self.data_collector.update_data(variable_info['data_vector'], variable_info['time_vector'], max_value, min_value, PVname=pvname, Freq=Freq_Collect)
+                self.data_collector.update_data(variable_info['data_vector'], variable_info['time_vector'], max_value, min_value, CheckPV=inputpv, Freq=Freq_Collect)
                 model_evaluator = self.model_evaluators[variable_name]
                 anomalies = model_evaluator.judge_anomalies(variable_info['data_vector'])
-                outputname.put(anomalies)
+                outputpv.put(anomalies)
+                #outputpv.put(0) 
                 sleep(Freq_Collect)  # 更新频率
         except Exception as e:
             print(f"Error while monitoring {variable_name}: {e}")
         print(f"Monitoring completed for {variable_name}.")
-       

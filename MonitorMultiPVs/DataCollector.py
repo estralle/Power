@@ -8,27 +8,27 @@ class DataCollector:
     def __init__(self):
         pass
 
-    def collect_initial_data_online(self, PVname, vector_length, Freq):
+    def collect_initial_data_online(self, CheckPV, vector_length, Freq):
         """
-        Collect the initial data points for the given PVname.
+        Collect the initial data points for the given CheckPV.
         """
-        data_vector, time_vector = self._collect_data(PVname, vector_length, Freq, initial=True)
+        data_vector, time_vector = self._collect_data(CheckPV, vector_length, Freq, initial=True)
         return data_vector, time_vector
 
-    def update_data(self, data_vector, time_vector, max_value, min_value, PVname, Freq):
+    def update_data(self, data_vector, time_vector, max_value, min_value, CheckPV, Freq):
         """
         Update the data vector with a new data point.
         """
-        updated_data_vector, updated_time_vector = self._collect_data(PVname, 1, Freq, initial=False, 
+        updated_data_vector, updated_time_vector = self._collect_data(CheckPV, 1, Freq, initial=False, 
                                                                       data_vector=data_vector, time_vector=time_vector, 
                                                                       max_value=max_value, min_value=min_value)
         return updated_data_vector, updated_time_vector
 
-    def _collect_data(self, PVname, vector_length, Freq, initial=True, data_vector=None, time_vector=None, max_value=None, min_value=None):
+    def _collect_data(self, CheckPV, vector_length, Freq, initial=True, data_vector=None, time_vector=None, max_value=None, min_value=None):
         """
         Private method to collect data. It supports both initial data collection and data update.
         """
-        pvname = PVname.name
+        #pvname = CheckPV
         if initial:
             data_vector = np.zeros(vector_length)  # Initialize data vector for initial collection
             time_vector = []  # Initialize time vector
@@ -38,7 +38,7 @@ class DataCollector:
             self._wait_until(next_target_time)
             current_time = strftime("%Y-%m-%d %H:%M:%S", localtime())
             try:
-                data_point = PVname.get()
+                data_point = CheckPV.get()
                 if not initial:
                     data_point = (data_point - min_value) / (max_value - min_value)
                     data_vector = np.roll(data_vector, -1)
@@ -47,7 +47,7 @@ class DataCollector:
                 else:
                     data_vector[i] = data_point
                     time_vector.append(current_time)
-                #print(f"PVname:{pvname};Time: {current_time}, Data: {data_point}")  # For demonstration purposes
+                print(f"CheckPV:{CheckPV};Time: {current_time}, Data: {data_point}")  # For demonstration purposes
             except Exception as e:
                 print(f"Error collecting data: {e}")
             next_target_time += Freq
