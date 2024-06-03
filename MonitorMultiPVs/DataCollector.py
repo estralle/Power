@@ -2,7 +2,6 @@ import numpy as np
 import time
 from time import strftime, localtime, sleep
 from epics import caget
-from PVs import PVs
 
 class DataCollector:
     def __init__(self):
@@ -28,7 +27,6 @@ class DataCollector:
         """
         Private method to collect data. It supports both initial data collection and data update.
         """
-        #pvname = CheckPV
         if initial:
             data_vector = np.zeros(vector_length)  # Initialize data vector for initial collection
             time_vector = []  # Initialize time vector
@@ -37,8 +35,30 @@ class DataCollector:
         for i in range(vector_length):
             self._wait_until(next_target_time)
             current_time = strftime("%Y-%m-%d %H:%M:%S", localtime())
+            max_retries = 5
+            retries = 0
+            data_point = None
+
+            while retries < max_retries:
+                try:
+                    data_point = CheckPV.get()
+                    if data_point is not None:
+                        break
+                    else:
+                        print(f"Data point is None, retrying... ({retries + 1}/{max_retries})")
+                except Exception as e:
+                    print(f"Error getting data point: {e}")
+                
+                CheckPV.reconnect()
+                CheckPV.wait_for_connection()
+                sleep(1)  # 添加延迟
+                retries += 1
+
+            if data_point is None:
+                print("Failed to get valid data point after multiple retries")
+                continue  # 跳过这个数据点，继续下一个
+
             try:
-                data_point = CheckPV.get()
                 if not initial:
                     data_point = (data_point - min_value) / (max_value - min_value)
                     data_vector = np.roll(data_vector, -1)
@@ -47,9 +67,10 @@ class DataCollector:
                 else:
                     data_vector[i] = data_point
                     time_vector.append(current_time)
-                print(f"CheckPV:{CheckPV};Time: {current_time}, Data: {data_point}")  # For demonstration purposes
+                print(f"CheckPV:{CheckPV}; Time: {current_time}, Data: {data_point}")  # For demonstration purposes
             except Exception as e:
-                print(f"Error collecting data: {e}")
+                print(f"Error processing data: {e}")
+
             next_target_time += Freq
 
         return data_vector, time_vector
@@ -72,5 +93,6 @@ class DataCollector:
         """
         while time.time() < target_time:
             sleep(0.01)
+
 
 

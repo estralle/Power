@@ -16,7 +16,7 @@ class ModelEvaluator:
                 return None
             
             predictions = self.model.predict(features_scaled)
-
+            print(f"Prediction is {predictions}")
             # 判断预测结果是否属于最大的簇（正常），否则为异常
             max_cluster = self._find_max_cluster()
             return 0 if predictions == max_cluster else 1

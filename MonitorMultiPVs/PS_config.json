@@ -1,5 +1,5 @@
-{
-  "variables_to_monitor": [
+{ "variables_to_monitor": ["LRBT_LRQPS02"],
+  "variables_to_monitor_all": [
     "LRBT_LRQPS02",
     "RTBT_RTBVPS02",
     "MEBT_QPS09",
@@ -39,7 +39,6 @@
     "MEBT_DHPS01",
     "RTBT_RTQPS09",
     "RCS_R2DHPS12",
-    "RCS_SPS01",
     "LRBT_LRBPS01",
     "DTL_QPS20",
     "RTBT_RDQPS03",
@@ -88,7 +87,6 @@
     "DTL_QPS36",
     "RTBT_RTDHPS07",
     "LRBT_LRDVPS07",
-    "RCS_R2DVPS02",
     "DTL_QPS23",
     "RTBT_RTQPS30",
     "RCS_HMBPS01",
@@ -215,7 +213,6 @@
     "DTL_QPS18",
     "RTBT_RTDVPS06A",
     "DTL_QPS75",
-    "RCS_R3DHPS01",
     "DTL_QPS07",
     "RCS_R3DVPS05",
     "DTL_QPS22",
@@ -261,7 +258,6 @@
     "RCS_AUXPS02",
     "RCS_R3DHPS07",
     "RCS_R3LMTDVPS01",
-    "DTL_QPS01",
     "RCS_R1DHPS09",
     "RCS_R4DVPS02",
     "RTBT_RTQPS25",
@@ -269,7 +265,6 @@
     "RTBT_RTBVPS01",
     "MEBT_DVPS01",
     "RTBT_RTDHPS05",
-    "RCS_SPS02",
     "DTL_QPS27",
     "LRBT_LRQPS18",
     "DTL_QPS82",

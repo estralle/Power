@@ -3,34 +3,50 @@ from ModelEvaluator import ModelEvaluator
 from Monitor import Monitor
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 import time
 import queue
 from threading import Thread
 import json 
 import os
 from time import sleep
+from epics import ca
+import threading
 
 
 # 设置环境变量
 os.environ["EPICS_CA_ADDR_LIST"] = "10.1.236.84 10.1.44.232 "
 os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"  # 如果需要，也可以设置其他相关的环境变量
 
-
 def main():
-    config_path = '/home/pengna/Workspace/General_info/scripts/Power/MonitorMultiPVs/config.json'
-    monitor_manager = Monitor(config_path)
+    
+    config_path = '/home/pengna/Workspace/General_info/scripts/Power/MonitorMultiPVs/PS_config.json'
+    # 初始化 EPICS 上下文
+    ca.initialize_libca()
+    context = ca.current_context()
+    
+    # 创建全局打印锁
+    print_lock = threading.Lock()
+    
+    # 创建 Monitor 实例
+    monitor_manager = Monitor(config_path, print_lock, context)
+    # 创建线程池
     executor = ThreadPoolExecutor(max_workers=300)
-    #executor = ThreadPoolExecutor()
-
+    
     # 启动初始配置中的所有监控
     initial_variables = monitor_manager.config.get('variables_to_monitor', [])
     futures = {}
     for variable in initial_variables:
         futures[variable] = executor.submit(
-            monitor_manager.variable_monitoring_routine, variable, data_vector_length=360)
-        #futures[variable] = future
+            monitor_manager.variable_monitoring_routine, variable, data_vector_length=30)
+    
+    # 等待所有任务完成
+    for future in futures.values():
+        future.result()
+    
+    # 关闭 EPICS 库
+    ca.finalize_libca()
+
+
 
 if __name__ == "__main__":
     main()

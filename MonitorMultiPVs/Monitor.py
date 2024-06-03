@@ -8,12 +8,15 @@ from DataCollector import DataCollector
 from ModelEvaluator import ModelEvaluator
 from time import sleep, strftime, localtime, time
 from sklearn.cluster import KMeans
-from epics import caget, caput, PV
+from epics import caget, caput, PV, ca
 import pv_channel
+import threading
 
 class Monitor:
-    def __init__(self, config_path):
+    def __init__(self, config_path, print_lock, context):
         self.config_path = config_path
+        self.print_lock = print_lock
+        self.context = context
         self.config = {
             'variables_to_monitor': [],
             'models_and_scalers': {},
@@ -25,7 +28,9 @@ class Monitor:
         self.last_config_check_time = datetime.min
         self.data_collector = DataCollector()
         self.model_evaluators = {}
+        print("config start:", strftime("%Y-%m-%d %H:%M:%S", localtime()))
         self.load_config()
+        print("config finished:", strftime("%Y-%m-%d %H:%M:%S", localtime()))
         self.initialize_models_and_scalers()
         self.initialize_model_evaluators()
         self.init_channel()
@@ -34,7 +39,7 @@ class Monitor:
         try:
             with open(self.config_path, 'r') as file:
                 self.config = json.load(file)
-            print("Config loaded:", self.config)
+            # print("Config loaded:", self.config)
             for variable in self.config['variables_to_monitor']:
                 self.variable_data[variable] = {
                     'data_vector': np.zeros(360),
@@ -60,8 +65,8 @@ class Monitor:
             self.config['models_and_scalers'][k] = (model, scaler)
 
     def init_channel(self):
-        self.input_channel = pv_channel.PvChannel()
-        self.output_channel = pv_channel.PvChannel()
+        self.input_channel = pv_channel.PvChannel(self.print_lock, self.context)
+        self.output_channel = pv_channel.PvChannel(self.print_lock, self.context)
         self.input_channel_old = {}
         self.output_channel_old = {}
         self.push_pvs()
@@ -74,15 +79,31 @@ class Monitor:
 
     def push_channels(self, channel, channel_old, define_name):
         for variable_name in list(channel_old):
-            if variable_name not in self.config[define_name]:
+            if variable_name not in self.config["variables_to_monitor"]:
                 channel.remove(variable_name)
-        for variable_name, pvname in self.config[define_name].items():
-            channel.push(variable_name, pvname)
+        
+        pv_list = [(variable_name, self.config[define_name][variable_name]) 
+                   for variable_name in self.config["variables_to_monitor"]]
+        
+        self.create_pv_channels(channel, pv_list)
+
+    def create_pv_channels(self, pv_channel, pv_list):
+        threads = []
+        for variable_name, pv_name in pv_list:
+            thread = threading.Thread(target=pv_channel.push, args=(variable_name, pv_name))
+            threads.append(thread)
+            thread.start()
+
+        for thread in threads:
+            thread.join()
 
     def variable_monitoring_routine(self, variable_name, data_vector_length=360):
         """
         封装的预测逻辑，用于监控特定变量。
         """
+        # 在每个线程中附加到主线程的上下文
+        ca.attach_context(self.context)
+        
         print(f"Monitoring started for {variable_name}.")
         try:
             variable_info = self.variable_data[variable_name]
@@ -92,21 +113,20 @@ class Monitor:
             config = self.config
             inputpv = self.input_channel.channelDict[variable_name]
             outputpv = self.output_channel.channelDict[variable_name]
-            #print(f"pvname is {pvname}, outputname is {outputname}")
             Freq_Init = config['Freq']['initial']
             Freq_Collect = config['Freq']['collect']
             variable_info['data_vector'], variable_info['time_vector'] = self.data_collector.collect_initial_data_online(CheckPV=inputpv, vector_length=data_vector_length, Freq=Freq_Init)
             print(variable_name + " Initial data collection complete.")
-            # 计算最大值和平均值
-            max_value = np.mean(variable_info['data_vector']) + 0.5
-            min_value = np.mean(variable_info['data_vector']) - 0.5
+            max_value = np.max(variable_info['data_vector']) *10
+            min_value = 0.
             variable_info['data_vector'] = (variable_info['data_vector'] - min_value) / (max_value - min_value)
             while True:
                 self.data_collector.update_data(variable_info['data_vector'], variable_info['time_vector'], max_value, min_value, CheckPV=inputpv, Freq=Freq_Collect)
                 model_evaluator = self.model_evaluators[variable_name]
                 anomalies = model_evaluator.judge_anomalies(variable_info['data_vector'])
+                print(f"Anomalise tested by modesl {anomalies}")
                 outputpv.put(anomalies)
-                #outputpv.put(0) 
+                #outputpv.put(0)
                 sleep(Freq_Collect)  # 更新频率
         except Exception as e:
             print(f"Error while monitoring {variable_name}: {e}")
