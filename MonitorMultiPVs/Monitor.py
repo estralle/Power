@@ -11,6 +11,7 @@ from sklearn.cluster import KMeans
 from epics import caget, caput, PV, ca
 import pv_channel
 import threading
+from threading import Lock  # 添加这个导入
 
 class Monitor:
     def __init__(self, config_path, print_lock, context):
@@ -28,6 +29,7 @@ class Monitor:
         self.last_config_check_time = datetime.min
         self.data_collector = DataCollector()
         self.model_evaluators = {}
+        self.data_lock = threading.Lock()  # 添加这个属性
         print("config start:", strftime("%Y-%m-%d %H:%M:%S", localtime()))
         self.load_config()
         print("config finished:", strftime("%Y-%m-%d %H:%M:%S", localtime()))
@@ -39,7 +41,6 @@ class Monitor:
         try:
             with open(self.config_path, 'r') as file:
                 self.config = json.load(file)
-            # print("Config loaded:", self.config)
             for variable in self.config['variables_to_monitor']:
                 self.variable_data[variable] = {
                     'data_vector': np.zeros(360),
@@ -47,22 +48,26 @@ class Monitor:
                     'results_df': pd.DataFrame(columns=['Time', 'Anomaly']),
                     'last_save_time': datetime.min
                 }
-            return self.config  # 确保返回新的配置 
+            return self.config
         except FileNotFoundError:
             print("Config file not found. Please check the path.")
         except json.JSONDecodeError:
             print("Error parsing the config file. Please check the file format.")
 
-    def initialize_model_evaluators(self):
-        for variable_name, (model, scaler) in self.config['models_and_scalers'].items():
-            self.model_evaluators[variable_name] = ModelEvaluator(model, scaler)
-
     def initialize_models_and_scalers(self):
         """直接使用配置中的模型和缩放器对象，不需要加载。"""
         for k, v in self.config['models_and_scalers'].items():
-            model = v[0] if isinstance(v[0], KMeans) else joblib.load(v[0])
-            scaler = v[1] if hasattr(v[1], 'transform') else joblib.load(v[1])
+            model_path = v[0] if isinstance(v[0], str) else None
+            scaler_path = v[1] if isinstance(v[1], str) else None
+
+            model = joblib.load(model_path) if model_path else v[0]
+            scaler = joblib.load(scaler_path) if scaler_path else v[1]
+
             self.config['models_and_scalers'][k] = (model, scaler)
+
+    def initialize_model_evaluators(self):
+        for variable_name, (model, scaler) in self.config['models_and_scalers'].items():
+            self.model_evaluators[variable_name] = ModelEvaluator(model, scaler, self.print_lock, self.context)
 
     def init_channel(self):
         self.input_channel = pv_channel.PvChannel(self.print_lock, self.context)
@@ -98,12 +103,9 @@ class Monitor:
             thread.join()
 
     def variable_monitoring_routine(self, variable_name, data_vector_length=360):
-        """
-        封装的预测逻辑，用于监控特定变量。
-        """
         # 在每个线程中附加到主线程的上下文
         ca.attach_context(self.context)
-        
+
         print(f"Monitoring started for {variable_name}.")
         try:
             variable_info = self.variable_data[variable_name]
@@ -117,16 +119,20 @@ class Monitor:
             Freq_Collect = config['Freq']['collect']
             variable_info['data_vector'], variable_info['time_vector'] = self.data_collector.collect_initial_data_online(CheckPV=inputpv, vector_length=data_vector_length, Freq=Freq_Init)
             print(variable_name + " Initial data collection complete.")
-            max_value = np.max(variable_info['data_vector']) *10
+            max_value = np.max(variable_info['data_vector']) * 10
             min_value = 0.
             variable_info['data_vector'] = (variable_info['data_vector'] - min_value) / (max_value - min_value)
             while True:
-                self.data_collector.update_data(variable_info['data_vector'], variable_info['time_vector'], max_value, min_value, CheckPV=inputpv, Freq=Freq_Collect)
-                model_evaluator = self.model_evaluators[variable_name]
-                anomalies = model_evaluator.judge_anomalies(variable_info['data_vector'])
-                print(f"Anomalise tested by modesl {anomalies}")
-                outputpv.put(anomalies)
-                #outputpv.put(0)
+                with self.data_lock:
+                    #print(f"Updating data for {variable_name}")
+                    variable_info['data_vector'], variable_info['time_vector']= self.data_collector.update_data(variable_info['data_vector'], variable_info['time_vector'], max_value, min_value, CheckPV=inputpv, Freq=Freq_Collect,vector_length=data_vector_length)
+                    #print(f"Data updated for {variable_name}")
+                    model_evaluator = self.model_evaluators[variable_name]
+                    #print(f"Evaluating anomalies for {variable_name}")
+                    anomalies = model_evaluator.judge_anomalies(variable_info['data_vector'])
+                    #print(f"Anomalies tested by model for {variable_name}: {anomalies}")
+                    outputpv.put(anomalies)
+                    #print(f"Anomalies put to output PV for {variable_name}")
                 sleep(Freq_Collect)  # 更新频率
         except Exception as e:
             print(f"Error while monitoring {variable_name}: {e}")

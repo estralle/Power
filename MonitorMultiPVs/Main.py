@@ -14,7 +14,7 @@ import threading
 
 
 # 设置环境变量
-os.environ["EPICS_CA_ADDR_LIST"] = "10.1.236.84 10.1.44.232 "
+os.environ["EPICS_CA_ADDR_LIST"] = "10.1.236.84 10.1.44.223 "
 os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"  # 如果需要，也可以设置其他相关的环境变量
 
 def main():
@@ -32,18 +32,17 @@ def main():
     # 创建线程池
     executor = ThreadPoolExecutor(max_workers=300)
     
-    # 启动初始配置中的所有监控
+    #启动初始配置中的所有监控
     initial_variables = monitor_manager.config.get('variables_to_monitor', [])
     futures = {}
     for variable in initial_variables:
-        futures[variable] = executor.submit(
-            monitor_manager.variable_monitoring_routine, variable, data_vector_length=30)
+       futures[variable] = executor.submit(
+           monitor_manager.variable_monitoring_routine, variable, data_vector_length=360)
     
-    # 等待所有任务完成
+    #等待所有任务完成
     for future in futures.values():
-        future.result()
-    
-    # 关闭 EPICS 库
+       future.result()
+       
     ca.finalize_libca()
 
 
