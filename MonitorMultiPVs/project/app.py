@@ -1,3 +1,6 @@
+ 
+ 
+
 # app.py
 from flask import Flask, render_template, jsonify
 from flask_socketio import SocketIO, emit
@@ -6,6 +9,10 @@ import time
 import epics
 import json
 import sys
+from flask import request
+import mysql.connector
+from datetime import datetime, timedelta
+
 sys.path.append('/home/pengna/Workspace/General_info/scripts/Power/MonitorMultiPVs/')
 from Monitor import Monitor
 
@@ -16,11 +23,11 @@ socketio = SocketIO(app)
 output_pv_data = {}
 print_lock = threading.Lock()
 
-# 初始化 EPICS 上下文
+# EPICS 设置
 epics.ca.initialize_libca()
 context = epics.ca.current_context()
 
-# 创建 Monitor 实例
+# Monitor 配置
 config_path = '/home/control/Workspace/GeneralInfo/scripts/Power/MonitorMultiPVs/PS_config.json'
 monitor_manager = Monitor(config_path, print_lock, context)
 
@@ -313,14 +320,97 @@ pvs_to_monitor = {
     "LRBT_LRDHPS06": "LRBT:LRDHPS06::Alarm:Tmp"
 }
 
+# 更新频率设置
+UPDATE_FREQUENCY = 1  # 每秒更新一次
+
 def monitor_pv(variable_name, pv_name):
     epics.ca.attach_context(context)
     while True:
-        value = epics.caget(pv_name)
-        with print_lock:
-            output_pv_data[variable_name] = value
-        socketio.emit('update_data', {'variable_name': variable_name, 'value': value})
-        time.sleep(1)  # 更新频率
+        try:
+            value = epics.caget(pv_name)
+            with print_lock:
+                output_pv_data[variable_name] = value
+            socketio.emit('update_data', {'variable_name': variable_name, 'value': value})
+        except Exception as e:
+            print(f"Error reading PV {pv_name}: {e}")
+        time.sleep(UPDATE_FREQUENCY)
+
+def start_monitoring():
+    for variable_name, pv_name in pvs_to_monitor.items():
+        thread = threading.Thread(target=monitor_pv, args=(variable_name, pv_name))
+        thread.daemon = True  # 设置为守护线程
+        thread.start()
+        
+def fetch_historical_data_from_mysql(pv_name, start_date, end_date):
+    """
+    从 MySQL 数据库查询指定 PV 的历史报警时间
+    """
+    try:
+        connection = mysql.connector.connect(
+            host='10.1.44.223',
+            port=3306,
+            database='archive',
+            user='archive',
+            password='123456'
+        )
+        if connection.is_connected():
+            cursor = connection.cursor(dictionary=True)
+            historical_data = []
+
+            # 查询 channel_id 对应的 pv_name
+            cursor.execute(f"SELECT channel_id FROM channel WHERE name = '{pv_name}'")
+            channel_result = cursor.fetchone()
+
+            if channel_result:
+                channel_id = channel_result['channel_id']
+
+                # 查询历史数据
+                query = f"""
+                SELECT smpl_time, float_val
+                FROM sample
+                WHERE channel_id = {channel_id}
+                    AND smpl_time BETWEEN '{start_date}' AND '{end_date}'
+                ORDER BY smpl_time DESC;
+                """
+                cursor.execute(query)
+                results = cursor.fetchall()
+
+                # 找到最近的报警时间
+                last_alarm_time = next((row['smpl_time'] for row in results if row['float_val'] == 1), None)
+
+                return {
+                    'pv_name': pv_name,
+                    'last_alarm_time': last_alarm_time.strftime('%Y-%m-%d %H:%M:%S') if last_alarm_time else "无"
+                }
+
+    except mysql.connector.Error as e:
+        print(f"MySQL Error: {e}")
+        return {'pv_name': pv_name, 'last_alarm_time': "无"}
+
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+
+
+@app.route('/api/fetch-historical-data', methods=['POST'])
+def fetch_historical_data():
+    """
+    提供所有 PV 名称的历史报警时间接口
+    """
+    data = request.json
+    start_date = data.get('start_date', (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d %H:%M:%S'))
+    end_date = data.get('end_date', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+    # 查询所有 pvs_to_monitor 的历史报警时间
+    historical_data = []
+    for variable_name, pv_name in pvs_to_monitor.items():
+        pv_data = fetch_historical_data_from_mysql(pv_name, start_date, end_date)
+        # 添加变量名 (key) 到返回结果中
+        pv_data['variable_name'] = variable_name
+        historical_data.append(pv_data)
+
+    return jsonify(historical_data)
 
 @app.route('/')
 def index():
@@ -339,7 +429,5 @@ def handle_connect():
             emit('update_data', {'variable_name': variable_name, 'value': value})
 
 if __name__ == '__main__':
-    for variable_name, pv_name in pvs_to_monitor.items():
-        thread = threading.Thread(target=monitor_pv, args=(variable_name, pv_name))
-        thread.start()
+    start_monitoring()
     socketio.run(app, host='0.0.0.0', port=5008)
